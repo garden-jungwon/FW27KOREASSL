@@ -294,6 +294,8 @@ main{min-width:0;padding-block:20px 48px;padding-left:28px;padding-right:max(16p
 /* question formats added for the 54-question survey */
 .qt{white-space:pre-line}
 .sec{font:900 clamp(18px,2.2vw,22px)/1.2 var(--display);margin:14px 0 -6px;padding:10px 12px;background:var(--fg);color:var(--bg);scroll-margin-top:8px}
+.sec .opt-tag{display:inline-block;margin-left:10px;padding:2px 8px;font-size:12px;font-weight:600;line-height:1.4;font-family:inherit;background:var(--bg);color:var(--fg);border-radius:2px;vertical-align:middle}
+.sec-note{margin:6px 0 0;padding:10px 12px;font-size:13px;border-left:3px solid var(--fg);background:var(--line)}
 .jump{display:flex;flex-wrap:wrap;gap:6px}
 .jump button{border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:7px 11px;font-size:12.5px;border-radius:999px;cursor:pointer}
 .q{scroll-margin-top:8px}
@@ -3053,9 +3055,14 @@ const isAnswered = q => {
 };
 // 순위 문항 중 개수 제한이 없는 것은 모든 보기에 순위를 매겨야 완료
 const rankAll = q => !q.pickHint && (!q.max || q.max >= q.options.length);
-const isRequired = q => !q.optional && visible(q);
+// 매장별 선택 응답 섹션: 성수=스포츠스타일 전용 매장(퍼포먼스 선택), 서촌=퍼포먼스 전용 매장(스포츠스타일 선택)
+const STORE_OPTIONAL = {"성수":"퍼포먼스", "서촌":"스포츠스타일"};
+const storeOptSec = sec => { const p = STORE_OPTIONAL[S.draft.store]; return !!p && sec.startsWith(p) };
+const storeOptional = q => storeOptSec(q.sec);
+const isRequired = q => !q.optional && !storeOptional(q) && visible(q);
 const visibleQs = () => QS.filter(visible);
-const answeredCount = () => visibleQs().filter(isAnswered).length;
+const progQs = () => visibleQs().filter(q => !storeOptional(q) || isAnswered(q));
+const answeredCount = () => progQs().filter(isAnswered).length;
 
 function hintOf(q){
   const a = S.draft.answers[q.id];
@@ -3096,7 +3103,7 @@ function qHTML(q){
     ${hintOf(q)}${answerHTML(q)}${note}
   </section>`;
 }
-const updateProg = () => { const p = document.querySelector(".prog"); if(p) p.firstChild.textContent = `${answeredCount()} / ${visibleQs().length}` };
+const updateProg = () => { const p = document.querySelector(".prog"); if(p) p.firstChild.textContent = `${answeredCount()} / ${progQs().length}` };
 const setMsg = () => { const m = document.querySelector(".smsg"); if(m){ m.className = "smsg "+S.msgCls; m.textContent = S.msg } };
 // redraw only the question that changed (and any question that depends on it), not all 54
 function refreshQ(q){
@@ -3115,7 +3122,7 @@ function renderSurvey(){
     : S.mine ? `<div class="banner ok">이 기기에서 ${esc(S.mine.store)} 응답을 제출했습니다 (${fmtTime(S.mine.updatedAt)}). 내용을 고친 뒤 다시 제출하면 해당 매장의 최신 응답으로 바뀝니다.</div>` : "";
   const cats = [...new Set(QS.map(q=>q.sec))];
   let last = null;
-  const body = QS.map(q => { const head = q.sec!==last ? `<h2 class="sec" id="sec-${cats.indexOf(q.sec)}">${esc(q.sec)}</h2>` : ""; last = q.sec; return head + qHTML(q) }).join("");
+  const body = QS.map(q => { const head = q.sec!==last ? `<h2 class="sec" id="sec-${cats.indexOf(q.sec)}">${esc(q.sec)}${storeOptSec(q.sec)?`<span class="opt-tag">선택 응답</span>`:""}</h2>${storeOptSec(q.sec)?`<p class="sec-note">${esc(d.store)} 매장은 이 카테고리를 운영하지 않아 응답하지 않아도 제출할 수 있습니다. 의견이 있으면 자유롭게 답해 주세요.</p>`:""}` : ""; last = q.sec; return head + qHTML(q) }).join("");
   $("#main").innerHTML = `<div class="sv">
     <div class="sv-head"><div class="eyebrow">FW27 FOOTWEAR<i>·</i>STORE SURVEY</div><h1 class="sname">매장 매니저 설문</h1>
       <p>제품 사진을 보고 질문에 답해 주세요. 사진 아래 "제품 상세 보기"를 누르면 설명과 스펙을 볼 수 있고, 돌아오면 입력한 내용이 그대로 남아 있습니다.</p></div>
@@ -3127,12 +3134,12 @@ function renderSurvey(){
     <nav class="jump" aria-label="카테고리로 이동">${cats.map((c,i)=>`<button type="button" data-jump="${i}">${esc(c)}</button>`).join("")}</nav>
     ${body}
     <div class="submit">
-      <span class="prog">${answeredCount()} / ${visibleQs().length}<small>문항 답변</small></span>
+      <span class="prog">${answeredCount()} / ${progQs().length}<small>문항 답변</small></span>
       <button type="button" class="btn" id="sv-submit" ${S.nodb||!S.ready||S.saving?"disabled":""}>${S.saving?"저장 중…":S.mine?"수정 내용 제출":"응답 제출"}</button>
       <span class="smsg ${S.msgCls}" role="status">${esc(S.msg)}</span>
     </div>
   </div>`;
-  $("#sv-store").onchange = e => { d.store = e.target.value; saveDraft() };
+  $("#sv-store").onchange = e => { d.store = e.target.value; saveDraft(); if(S.msgCls==="err") S.msg = ""; keepScroll(renderSurvey) };
   $("#sv-manager").oninput = e => { d.manager = e.target.value; saveDraft() };
   $("#sv-submit").onclick = submit;
 }
